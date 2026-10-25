@@ -1,0 +1,166 @@
+// -----------------------------------------------------------------------
+// Quardrubic primality test
+// -----------------------------------------------------------------------
+
+#include <ctype.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+
+#include "bison.gmp_expr.h"
+#include "quardrubic_primality.h"
+#include "quardrubic_primality_alloc.h"
+
+static void quardrubic_primality_file(char *name, bool verbose)
+{
+    long prime_count = 0;
+    long composite_count = 0;
+    long line = 0;
+    FILE *f = fopen(name, "rt");
+    if (f)
+    {
+        const int buff_len = 1000000; // max line length
+        char *buff = (char *)malloc(buff_len);
+        if (!buff)
+        {
+            printf("Unable to allocate %d bytes\n", buff_len);
+            exit(1);
+        }
+        mpz_t v;
+        mpz_init(v);
+
+        // get a line
+        buff[buff_len - 2] = 0;
+        while (fgets(buff, buff_len, f))
+        {
+            // check overflow
+            line++;
+            if (buff[buff_len - 2] != 0)
+            {
+                printf("Input line %ld too long\n", line);
+                exit(1);
+            }
+            // trim trailing spaces
+            int len = strlen(buff);
+            while (len > 0 && isspace(buff[len - 1]))
+            {
+                len--;
+            }
+            buff[len] = 0;
+            // trim leading spaces
+            char *pt = buff;
+            while (isspace(*pt))
+            {
+                pt++;
+            }
+            if (*pt && *pt != '#') // discard empty lines or comments
+            {
+                if (verbose)
+                {
+                    printf("%s ...", pt);
+                    fflush(stdout);
+                }
+                bool valid = mpz_expression_parse(v, pt);
+                if (!valid)
+                {
+                    printf("Input line %ld unparsable\n", line);
+                    exit(1);
+                }
+                bool is_prime = mpz_quardrubic_primality(v);
+                if (verbose)
+                {
+                    printf(" %s\n", is_prime ? "might be prime" : "composite for sure");
+                }
+                prime_count += (is_prime == true);
+                composite_count += (is_prime == false);
+            }
+        }
+        mpz_clear(v);
+        free(buff);
+        fclose(f);
+    }
+    printf("File %s done, %ld primes, %ld composites\n", name, prime_count, composite_count);
+}
+
+int main(int argc, char **argv)
+{
+
+    mp_set_memory_functions(quardrubic_allocate_function, quardrubic_reallocate_function, quardrubic_free_function);
+
+    bool verbose = false;
+    for (int i = 1; i < argc; i++)
+    {
+        if (!strcmp(argv[i], "-st"))
+        {
+            // internal sanity self tests
+            quardrubic_primality_self_test();
+            printf("Self tests completed\n");
+            exit(0);
+        }
+        if (!strcmp(argv[i], "--help"))
+        {
+            printf("%s usage : \n", argv[0]);
+            printf(" --help ............... : this\n");
+            printf(" --version ............ : print the software version\n");
+            printf(" -v ................... : enable verbose mode (should be before expressions)\n");
+            printf(" -st .................. : run self-test and exit\n");
+            printf(" -f filename .......... : test multiple expressions in a file, one per line, count primes and "
+                   "composites\n");
+            printf(" expressions .......... : space-separated numerical expressions to be tested like 2*3^12+1\n");
+            printf("\n");
+            exit(0);
+        }
+        if (!strcmp(argv[i], "--version"))
+        {
+            printf("Version 0.2\n");
+            exit(0);
+        }
+        if (!strcmp(argv[i], "-v"))
+        {
+            verbose = true;
+            continue;
+        }
+        if (!strcmp(argv[i], "-f"))
+        {
+            quardrubic_primality_file(argv[++i], verbose);
+            verbose = true;
+            continue;
+        }
+        if (1)
+        {
+            // command line argument must be a number, or an expression
+            struct timespec ts1, ts2;
+            mpz_t n;
+            mpz_init(n);
+
+            // Read an expression from the command line
+            // Supported operators are +/-*^() with usual precedence.
+            bool valid = mpz_expression_parse(n, argv[i]);
+            if (!valid)
+            {
+                printf("Input unparsable\n");
+                exit(1);
+            }
+            // gmp_printf("Test n=%Zd.\n",n);
+
+            clock_gettime(CLOCK_REALTIME, &ts1);
+            bool is_prime = mpz_quardrubic_primality(n, verbose);
+            clock_gettime(CLOCK_REALTIME, &ts2);
+
+            // Display the input number, the number of steps, and the time it took to run it, in milliseconds.
+            double diff = ts2.tv_sec - ts1.tv_sec;
+            diff *= 1e9;
+            diff += ts2.tv_nsec;
+            diff -= ts1.tv_nsec;
+            diff /= 1e6;
+            printf("%s %s, time = %12.3f msecs.\n", argv[i], (is_prime ? "might be prime" : "is composite for sure"),
+                   diff);
+            fflush(stdout);
+            mpz_clear(n);
+        }
+    }
+
+    return 0;
+}

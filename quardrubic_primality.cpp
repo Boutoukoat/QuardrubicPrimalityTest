@@ -2,7 +2,6 @@
 // Quardrubic primality check
 // -----------------------------------------------------------------------
 
-#include <assert.h>
 #include <algorithm>
 #include <assert.h>
 #include <ctype.h>
@@ -1506,6 +1505,10 @@ static bool uint64_quardrubic_primality(uint64_t n, bool verbose = false)
             return false; // n composite
         }
 
+        // ----------------------------------------------------
+        // Check (1*x+0)^n mod (x^2-x-a) == -x+1  mod n
+        //
+
         uint64_t s, t, bit;
         s = 1;
         t = 0;
@@ -1642,13 +1645,39 @@ bool mpz_quardrubic_primality(mpz_t n, bool verbose)
             goto done;
         }
 
+        // -----------------------------------------------
+        // Check (1*x+0)^n mod (x^2-x-a) == -x+1  mod n
+        //
+
         uint64_t bits_a = 64 - __builtin_clzll(a); // rounded-up log2
         struct mod_precompute_t *p = mpz_mod_precompute(n, bits_a, verbose);
         mpz_t bs, bt, s2, t2, st2;
         mpz_inits(bs, bt, s2, t2, st2, 0);
-        uint64_t bit = mpz_sizeinbase(n, 2) - 1;
 
-        // Check (x)^n mod (x^2 -x -a) = -x + 1;
+// square, multiply and divide operations
+//
+//	? V=Mod(s*x+t, x^2-x-a)
+//      %1 = Mod(s*x + t, x^2 - x - a)
+//      ? V^2
+//      %2 = Mod((s^2 + 2*t*s)*x + (a*s^2 + t^2), x^2 - x - a)
+//      ? V*x
+//      %3 = Mod((s + t)*x + a*s, x^2 - x - a)
+//      ? V/x
+//      %4 = Mod(-1/-a*t*x + (s + 1/-a*t), x^2 - x - a)
+
+        // NAF exponent (3*n xor n)
+        mpz_t n1, n3, ia;
+        mpz_inits(n1, n3, ia, 0);
+        mpz_mul_ui(n3, n, 3);
+        mpz_xor(n1, n3, n);
+
+        // fast 1/a mod n when n and a are coprime, computed from 1/n mod a
+        uint64_t in = mpz_mod_ui(tmp, n, a);
+        mpz_mul_ui(tmp, n, a - uint64_mod_inv(in, a));
+        mpz_add_ui(tmp, tmp, 1);
+        mpz_divexact_ui(ia, tmp, a);
+
+        uint64_t bit = mpz_sizeinbase(n1, 2) - 1;
         mpz_set_ui(bs, 1);
         mpz_set_ui(bt, 0);
         mpz_mod_to_montg(bs, p);
@@ -1656,8 +1685,9 @@ bool mpz_quardrubic_primality(mpz_t n, bool verbose)
 
         // (TODO) unroll the 3 first bits
 
-        while (bit--)
+        while (bit-- > 1)
         {
+            // square (bs * x + bt)^2
             mpz_mul(s2, bs, bs);
             mpz_mul(t2, bt, bt);
             mpz_add(tmp, bs, bt);
@@ -1665,11 +1695,23 @@ bool mpz_quardrubic_primality(mpz_t n, bool verbose)
             mpz_sub(bs, st2, t2);
             mpz_mul_ui(tmp, s2, a);
             mpz_add(bt, tmp, t2);
-            if (mpz_tstbit(n, bit))
+            if (mpz_tstbit(n1, bit))
             {
-                mpz_add(tmp, bs, bt);
-                mpz_mul_ui(bt, bs, a);
-                mpz_set(bs, tmp);
+                if (mpz_tstbit(n3, bit))
+                {
+                    // multiply (bs * x + bt) by x
+                    mpz_add(tmp, bs, bt);
+                    mpz_mul_ui(bt, bs, a);
+                    mpz_set(bs, tmp);
+                }
+                else
+                {
+                    // divide (bs * x + bt) by x
+                    mpz_mul(tmp, bt, ia);
+                    mpz_sub(bt, bs, tmp);
+                    mpz_mod_positive_reduce(bt, bs, p);
+                    mpz_set(bs, tmp);
+                }
             }
             mpz_mod_fast_reduce(bs, tmp, p);
             mpz_mod_fast_reduce(bt, tmp, p);
@@ -1681,8 +1723,11 @@ bool mpz_quardrubic_primality(mpz_t n, bool verbose)
         mpz_mod_slow_reduce(bs, p);
         mpz_mod_slow_reduce(bt, p);
 
+        // check bs*x + bt == (n-1)*x + 1
         mpz_add_ui(tmp, bs, 1);
         res = (mpz_cmp(tmp, n) == 0 && mpz_cmp_ui(bt, 1) == 0);
+
+        mpz_clears(n1, n3, ia, 0);
         mpz_clears(bs, bt, s2, t2, st2, 0);
         mpz_mod_uncompute(p);
         goto done;
@@ -1715,7 +1760,6 @@ void quardrubic_primality_self_test(void)
         b = 150;
         c = uint64_gcd(a, b);
         assert(c == 30);
-
     }
 
     // ---------------------------------------------------------------------------------

@@ -1691,7 +1691,7 @@ bool mpz_quardrubic_primality(mpz_t n, bool verbose)
         while (bit-- > 1)
         {
             // bs^2
-            // bt ^2
+            // bt^2
             // (bs+bt)^2
             mpz_mul(s2, bs, bs);
             mpz_mul(t2, bt, bt);
@@ -1702,6 +1702,8 @@ bool mpz_quardrubic_primality(mpz_t n, bool verbose)
                 if (mpz_tstbit(n3, bit))
                 {
                     // multiply (bs * x + bt)^2 by x mod(x^2 -x -a)
+                    //
+                    // st2 + s2*a, (st2 - t2)*a
                     mpz_mul_ui(tmp, s2, a);
                     mpz_add(bs, tmp, st2);
                     mpz_sub(tmp, st2, t2);
@@ -1710,6 +1712,9 @@ bool mpz_quardrubic_primality(mpz_t n, bool verbose)
                 else
                 {
                     // divide (bs * x + bt)^2 by x mod(x^2 -x -a)
+                    //
+                    // tmp = t2*ia
+                    // s2 + tmp, st2 - s2 - t2 - tmp
                     mpz_mul(tmp, t2, ia);
                     mpz_add(bs, tmp, s2);
                     mpz_sub(bt, st2, t2);
@@ -1721,6 +1726,8 @@ bool mpz_quardrubic_primality(mpz_t n, bool verbose)
             else
             {
                 // square (bs * x + bt)^2  mod(x^2 -x -a)
+                //
+                // st2 - t2, s2*a + t2
                 mpz_sub(bs, st2, t2);
                 mpz_mul_ui(tmp, s2, a);
                 mpz_add(bt, tmp, t2);

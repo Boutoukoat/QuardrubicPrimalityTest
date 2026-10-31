@@ -1627,6 +1627,8 @@ bool mpz_quardrubic_primality(mpz_t n, bool verbose)
         {
             continue; // try another a
         }
+
+        // gcd(a^6-1) == 1
         mpz_set_ui(tmp, a * a * a);
         mpz_mul(tmp, tmp, tmp);
         mpz_sub_ui(tmp, tmp, 1);
@@ -1654,16 +1656,17 @@ bool mpz_quardrubic_primality(mpz_t n, bool verbose)
         mpz_t bs, bt, s2, t2, st2;
         mpz_inits(bs, bt, s2, t2, st2, 0);
 
-// square, multiply and divide operations
-//
-//	? V=Mod(s*x+t, x^2-x-a)
-//      %1 = Mod(s*x + t, x^2 - x - a)
-//      ? V^2
-//      %2 = Mod((s^2 + 2*t*s)*x + (a*s^2 + t^2), x^2 - x - a)
-//      ? V*x
-//      %3 = Mod((s + t)*x + a*s, x^2 - x - a)
-//      ? V/x
-//      %4 = Mod(-1/-a*t*x + (s + 1/-a*t), x^2 - x - a)
+        // square, multiply and divide operations
+        //
+        //      ? V=Mod(s*x+t, x^2-x-a)
+        //      %7 = Mod(s*x + t, x^2 - x - a)
+        //      ? V^2
+        //      %8 = Mod((s^2 + 2*t*s)*x + (a*s^2 + t^2), x^2 - x - a)
+        //      ? V^2*x
+        //      %9 = Mod(((a + 1)*s^2 + 2*t*s + t^2)*x + (a*s^2 + 2*a*t*s), x^2 - x - a)
+        //      ? V^2/x
+        //      %10 = Mod((s^2 - 1/-a*t^2)*x + (2*t*s + 1/-a*t^2), x^2 - x - a)
+        //
 
         // NAF exponent (3*n xor n)
         mpz_t n1, n3, ia;
@@ -1671,7 +1674,7 @@ bool mpz_quardrubic_primality(mpz_t n, bool verbose)
         mpz_mul_ui(n3, n, 3);
         mpz_xor(n1, n3, n);
 
-        // fast 1/a mod n when n and a are coprime, computed from 1/n mod a
+        // fast 1/a mod n when n and a are coprime, n large and a small, computed from 1/n mod a
         uint64_t in = mpz_mod_ui(tmp, n, a);
         mpz_mul_ui(tmp, n, a - uint64_mod_inv(in, a));
         mpz_add_ui(tmp, tmp, 1);
@@ -1687,31 +1690,40 @@ bool mpz_quardrubic_primality(mpz_t n, bool verbose)
 
         while (bit-- > 1)
         {
-            // square (bs * x + bt)^2
+            // bs^2
+            // bt ^2
+            // (bs+bt)^2
             mpz_mul(s2, bs, bs);
             mpz_mul(t2, bt, bt);
             mpz_add(tmp, bs, bt);
             mpz_mul(st2, tmp, tmp);
-            mpz_sub(bs, st2, t2);
-            mpz_mul_ui(tmp, s2, a);
-            mpz_add(bt, tmp, t2);
             if (mpz_tstbit(n1, bit))
             {
                 if (mpz_tstbit(n3, bit))
                 {
-                    // multiply (bs * x + bt) by x
-                    mpz_add(tmp, bs, bt);
-                    mpz_mul_ui(bt, bs, a);
-                    mpz_set(bs, tmp);
+                    // multiply (bs * x + bt)^2 by x mod(x^2 -x -a)
+                    mpz_mul_ui(tmp, s2, a);
+                    mpz_add(bs, tmp, st2);
+                    mpz_sub(tmp, st2, t2);
+                    mpz_mul_ui(bt, tmp, a);
                 }
                 else
                 {
-                    // divide (bs * x + bt) by x
-                    mpz_mul(tmp, bt, ia);
-                    mpz_sub(bt, bs, tmp);
-                    mpz_mod_positive_reduce(bt, bs, p);
-                    mpz_set(bs, tmp);
+                    // divide (bs * x + bt)^2 by x mod(x^2 -x -a)
+                    mpz_mul(tmp, t2, ia);
+                    mpz_add(bs, tmp, s2);
+                    mpz_sub(bt, st2, t2);
+                    mpz_sub(bt, bt, s2);
+                    mpz_sub(bt, bt, tmp);
+                    mpz_mod_positive_reduce(bt, tmp, p);
                 }
+            }
+            else
+            {
+                // square (bs * x + bt)^2  mod(x^2 -x -a)
+                mpz_sub(bs, st2, t2);
+                mpz_mul_ui(tmp, s2, a);
+                mpz_add(bt, tmp, t2);
             }
             mpz_mod_fast_reduce(bs, tmp, p);
             mpz_mod_fast_reduce(bt, tmp, p);
